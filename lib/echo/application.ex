@@ -7,8 +7,10 @@ defmodule Echo.Application do
 
   def start(_type, _args) do
     # List all child processes to be supervised
+
     children = [
       {Registry, keys: :unique, name: Registry.Chatrooms},
+      ChatroomCache,
       {Task.Supervisor, name: Echo.EchoServerSupervisor},
       {DynamicSupervisor, name: ChatroomsSupervisor, strategy: :one_for_one},
       {Task, fn -> Echo.accept(4040) end}

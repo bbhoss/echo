@@ -11,13 +11,14 @@ defmodule Chatroom do
 
   def handle_call({:configure, chatroom}, _ref, _state) do
     {:ok, _pid} = Registry.register(Registry.Chatrooms, chatroom, self())
-    {:reply, :ok, {chatroom, []}}
+    :ok = ChatroomCache.register_room(chatroom)
+    {:reply, :ok, {chatroom, %{}}}
   end
 
-  def handle_call({:join, client}, _ref, {chatroom, sockets}) do
+  def handle_call({:join, client, username}, _ref, {chatroom, sockets}) do
     :ok = configure_socket(client)
-    IO.puts("Socket joined chatroom #{chatroom}")
-    {:reply, :ok, {chatroom, [client | sockets]}}
+    bulk_send(sockets, "#{username} joined the chat")
+    {:reply, :ok, {chatroom, Map.put(sockets, client, username)}}
   end
 
   defp configure_socket(socket) do
@@ -26,22 +27,34 @@ defmodule Chatroom do
   end
 
   def handle_info({:tcp, client, message}, state = {_, sockets}) do
-    for sock <- sockets, sock != client do
-      writeln(sock, String.trim(message))
-    end
+    sender_username = Map.get(sockets, client)
+
+    bulk_send(sockets, sender_username <> ": " <> String.trim(message))
 
     # Queue messages from client in kernel buffer until they've been relayed to other users
     :ok = configure_socket(client)
     {:noreply, state}
   end
 
+  def handle_info({:tcp_closed, client}, {chatroom, sockets}) do
+    leaving_user = Map.get(sockets, client)
+    bulk_send(sockets, "#{leaving_user} left the chat")
+    {:noreply, {chatroom, Map.delete(sockets, client)}}
+  end
+
+  defp bulk_send(sockets, message) do
+    for {sock, _username} <- sockets do
+      writeln(sock, message)
+    end
+  end
+
   defp writeln(socket, line) do
     :gen_tcp.send(socket, line <> "\n")
   end
 
-  def join(chatroom, socket) do
+  def join(chatroom, socket, username) do
     :ok = :gen_tcp.controlling_process(socket, chatroom)
-    GenServer.call(chatroom, {:join, socket})
+    GenServer.call(chatroom, {:join, socket, username})
   end
 
   def configure(pid, chatroom) do

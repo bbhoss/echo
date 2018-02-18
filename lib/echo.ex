@@ -25,31 +25,46 @@ defmodule Echo do
   end
 
   defp serve(socket) do
+    {:ok, username} =
+      socket
+      |> prompt("What's your name?")
+
     {:ok, chatroom} =
       socket
-      |> chatroom_prompt()
+      |> list_chatrooms()
+      |> prompt("What chatroom do you want to join?")
 
     IO.puts("User joining chatroom #{chatroom}")
 
     case Registry.lookup(Registry.Chatrooms, chatroom) do
       [{chatroom_pid, _val} | _t] ->
-        :ok = Chatroom.join(chatroom_pid, socket)
+        :ok = Chatroom.join(chatroom_pid, socket, username)
 
       [] ->
         {:ok, chatroom_pid} = DynamicSupervisor.start_child(ChatroomsSupervisor, Chatroom)
         :ok = Chatroom.configure(chatroom_pid, chatroom)
-        Chatroom.join(chatroom_pid, socket)
+        Chatroom.join(chatroom_pid, socket, username)
     end
   end
 
-  defp chatroom_prompt(socket) do
-    write_line("What chatroom do you want to join?", socket)
+  defp list_chatrooms(socket) do
+    write_line("Current Rooms:", socket)
 
-    chatroom =
+    for room <- ChatroomCache.list_rooms() do
+      write_line(room, socket)
+    end
+
+    socket
+  end
+
+  defp prompt(socket, message) do
+    write_line(message, socket)
+
+    result =
       read_line(socket)
       |> String.trim()
 
-    {:ok, chatroom}
+    {:ok, result}
   end
 
   defp read_line(socket) do
